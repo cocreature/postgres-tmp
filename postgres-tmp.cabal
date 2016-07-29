@@ -1,5 +1,5 @@
 name:                postgres-tmp
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Create a temporary database that is deleted after performing some operation
 description:         Please see README.md
 homepage:            https://github.com/cocreature/postgres-tmp#readme

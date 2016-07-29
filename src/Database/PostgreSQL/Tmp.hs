@@ -9,7 +9,8 @@ module Database.PostgreSQL.Tmp
   ,withTmpDB'
   ,newRole
   ,newDB
-  ,defaultDB) where
+  ,defaultDB
+  ,DBInfo(..)) where
 
 import           Control.Applicative (pure)
 import           Control.Exception
