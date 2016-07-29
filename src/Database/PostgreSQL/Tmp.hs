@@ -11,9 +11,9 @@ module Database.PostgreSQL.Tmp
   ,newDB
   ,defaultDB) where
 
+import           Control.Applicative (pure)
 import           Control.Exception
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS
 import           Data.Coerce
 import           Data.Int
 import           Data.Monoid
@@ -59,7 +59,7 @@ newRole :: Connection -> IO T.Text
 newRole conn =
   do (roles :: [Only T.Text]) <- query_ conn "SELECT rolname FROM pg_roles"
      let newName = freshName "tmp" (coerce roles)
-     execute conn "CREATE USER ? WITH CREATEDB" (Only (Identifier newName))
+     _ <- execute conn "CREATE USER ? WITH CREATEDB" (Only (Identifier newName))
      pure newName
 
 -- | Drop the role.
@@ -71,7 +71,7 @@ newDB :: Connection -> T.Text -> IO T.Text
 newDB conn role =
   do (dbNames :: [Only T.Text]) <- query_ conn "SELECT datname FROM pg_database"
      let newName = freshName "tmp" (coerce dbNames)
-     execute conn "CREATE DATABASE ? OWNER ?" (Identifier newName,Identifier role)
+     _ <- execute conn "CREATE DATABASE ? OWNER ?" (Identifier newName,Identifier role)
      pure newName
 
 -- | Drop the database.
