@@ -14,11 +14,13 @@ module Database.PostgreSQL.Tmp
 
 import           Control.Applicative (pure)
 import           Control.Exception
+import qualified Control.Exception.Safe as Safe
 import           Data.ByteString (ByteString)
 import           Data.Coerce
 import           Data.Int
 import           Data.Monoid
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Types
 
@@ -36,6 +38,15 @@ data DBInfo =
 withTmpDB :: (DBInfo -> IO a) -> IO a
 withTmpDB = withTmpDB' defaultDB
 
+withConn :: ByteString -> (Connection -> IO a) -> IO a
+withConn conStr =
+  Safe.bracket
+    (do putStrLn "connecting to postgres"
+        c <- connectPostgreSQL conStr
+        putStrLn "connected to postgres"
+        pure c)
+    (\c -> close c >> putStrLn "closed postgres")
+
 -- | Create a temporary database and a temporary role that the
 -- callback can operate on. After the action has finished the database
 -- and the role are destroyed.
@@ -45,40 +56,52 @@ withTmpDB = withTmpDB' defaultDB
 -- and that the user has the @CREATEDB@ and @CREATEROLE@ privileges.
 withTmpDB' :: ByteString -> (DBInfo -> IO a) -> IO a
 withTmpDB' conStr f =
-  bracket (connectPostgreSQL conStr) close $
-    \conn ->
-       bracket (newRole conn) (dropRole conn) $ \role -> do
-       bracket (newDB conn role) (dropDatabase conn) $ \db -> do
-         f (DBInfo {dbName = db, roleName = role})
+       Safe.bracket (newRole conStr) (\r -> putStrLn "dropping role" >> dropRole conStr r >>= print) $ \role -> do
+       Safe.bracket (newDB conStr role) (\c ->
+            putStrLn "dropping database" >> dropDatabase conStr c >>= print) $ \db -> do
+        f (DBInfo {dbName = db, roleName = role})
 
 -- | Create a new role that does not already exist and return its name.
 --
 -- The new role does not have a password and has the @CREATEDB@
 -- privilege. The database that the connection points to is assumed to
 -- contain a table called @pg_roles@ with a @rolname@ column.
-newRole :: Connection -> IO T.Text
-newRole conn =
-  do (roles :: [Only T.Text]) <- query_ conn "SELECT rolname FROM pg_roles"
-     let newName = freshName "tmp" (coerce roles)
-     _ <- execute conn "CREATE USER ? WITH CREATEDB" (Only (Identifier newName))
-     pure newName
+newRole :: ByteString -> IO T.Text
+newRole conStr =
+  withConn conStr $
+  \conn ->
+    do (roles :: [Only T.Text]) <- query_ conn "SELECT rolname FROM pg_roles"
+       let newName = freshName "tmp" (coerce roles)
+       _ <-
+         execute conn "CREATE USER ? WITH CREATEDB" (Only (Identifier newName))
+       pure newName
 
 -- | Drop the role.
-dropRole :: Connection -> T.Text -> IO Int64
-dropRole conn name = execute conn "DROP ROLE ?" (Only (Identifier name))
+dropRole :: ByteString -> T.Text -> IO Int64
+dropRole conStr name =
+  withConn conStr $
+  \conn -> execute conn "DROP ROLE ?" (Only (Identifier name))
 
 -- | Create a new database that is owned by the user.
-newDB :: Connection -> T.Text -> IO T.Text
-newDB conn role =
-  do (dbNames :: [Only T.Text]) <- query_ conn "SELECT datname FROM pg_database"
-     let newName = freshName "tmp" (coerce dbNames)
-     _ <- execute conn "CREATE DATABASE ? OWNER ?" (Identifier newName,Identifier role)
-     pure newName
+newDB :: ByteString -> T.Text -> IO T.Text
+newDB conStr role =
+  withConn conStr $ \conn ->
+    do (dbNames :: [Only T.Text]) <- query_ conn "SELECT datname FROM pg_database"
+       let newName = freshName "tmp" (coerce dbNames)
+       _ <- execute conn "CREATE DATABASE ? OWNER ?" (Identifier newName,Identifier role)
+       pure newName
 
 -- | Drop the database.
-dropDatabase :: Connection -> T.Text -> IO Int64
-dropDatabase conn name =
-  execute conn "DROP DATABASE ?" (Only (Identifier name))
+dropDatabase :: ByteString -> T.Text -> IO Int64
+dropDatabase conStr name =
+  putStrLn "establishing connection" >>
+    withConn conStr
+    (\conn ->
+      do putStrLn "starting dropping database"
+         x <- execute conn "DROP DATABASE ?" (Only (Identifier name))
+         print x
+         putStrLn "dropped db"
+         pure 0)
 
 -- | Create a fresh name that is not in the list of already existing names.
 --
