@@ -4,13 +4,19 @@ The main usecase for this are tests where you don’t want to assume that a cert
 -}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Database.PostgreSQL.Tmp 
-  (withTmpDB
-  ,withTmpDB'
-  ,newRole
-  ,newDB
-  ,defaultDB
-  ,DBInfo(..)) where
+module Database.PostgreSQL.Tmp
+  ( defaultDB
+  , DBInfo(..)
+  , withTmpDB
+  , withTmpDB'
+  -- * Low level APIs
+  , createTmpDB
+  , dropTmpDB
+  , newRole
+  , dropRole
+  , newDB
+  , dropDB
+  ) where
 
 import           Control.Applicative (pure)
 import           Control.Exception
@@ -40,16 +46,34 @@ withTmpDB = withTmpDB' defaultDB
 -- callback can operate on. After the action has finished the database
 -- and the role are destroyed.
 --
+-- This is a `bracket`-style wrapper around 'createTmpDB' and 'dropTmpDB'
+--
 -- This function assumes that the connection string points to a
 -- database containing the tables called @pg_roles@ and @pg_database@
 -- and that the user has the @CREATEDB@ and @CREATEROLE@ privileges.
 withTmpDB' :: ByteString -> (DBInfo -> IO a) -> IO a
-withTmpDB' conStr f =
-  bracket (connectPostgreSQL conStr) close $
-    \conn ->
-       bracket (newRole conn) (dropRole conn) $ \role -> do
-       bracket (newDB conn role) (dropDatabase conn) $ \db -> do
-         f (DBInfo {dbName = db, roleName = role})
+withTmpDB' conStr f = bracket (createTmpDB conStr) dropTmpDB (\(_,dbInfo) -> f dbInfo)
+
+-- | Create a temporary database and a temporary role.
+--
+-- To destroy the database and the role use `dropTmpDB`.
+--
+-- This function assumes that the connection string points to a
+-- database containing the tables called @pg_roles@ and @pg_database@
+-- and that the user has the @CREATEDB@ and @CREATEROLE@ privileges.
+createTmpDB :: ByteString -> IO (Connection, DBInfo)
+createTmpDB conStr = do
+  conn <- connectPostgreSQL conStr
+  role <- newRole conn
+  db <- newDB conn role
+  pure (conn, DBInfo {dbName = db,roleName = role})
+
+-- | Destroy the database and the role created by `createTmpDB`.
+dropTmpDB :: (Connection, DBInfo) -> IO ()
+dropTmpDB (conn, DBInfo db role) = do
+  _ <- dropDB conn db
+  _ <- dropRole conn role
+  close conn
 
 -- | Create a new role that does not already exist and return its name.
 --
@@ -76,8 +100,8 @@ newDB conn role =
      pure newName
 
 -- | Drop the database.
-dropDatabase :: Connection -> T.Text -> IO Int64
-dropDatabase conn name =
+dropDB :: Connection -> T.Text -> IO Int64
+dropDB conn name =
   execute conn "DROP DATABASE ?" (Only (Identifier name))
 
 -- | Create a fresh name that is not in the list of already existing names.

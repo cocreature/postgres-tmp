@@ -1,5 +1,5 @@
 name:                postgres-tmp
-version:             0.1.0.1
+version:             0.2.0
 synopsis:            Create a temporary database that is deleted after performing some operation
 description:         Please see README.md
 homepage:            https://github.com/cocreature/postgres-tmp#readme
@@ -8,9 +8,9 @@ license-file:        LICENSE
 author:              Moritz Kiefer
 maintainer:          moritz.kiefer@purelyfunctional.org
 copyright:           2016
-category:            Unknown
+category:            Database
 build-type:          Simple
--- extra-source-files:
+extra-source-files:  README.md CHANGELOG.md
 cabal-version:       >=1.10
 tested-with:         GHC == 7.10.3, GHC == 8.0.2, GHC == 8.2.2
 
